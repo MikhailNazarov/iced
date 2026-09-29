@@ -37,7 +37,7 @@ winit.workspace = true
 sysinfo.workspace = true
 sysinfo.optional = true
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
 arboard.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -52,3 +52,6 @@ mundy.optional = true
 # Delete once we update to `winit 0.31`
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.5", features = ["relax-sign-encoding"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { workspace = true, features = ["android-native-activity"] }
