@@ -169,6 +169,11 @@ where
         error: Option<Error>,
         system_theme: Option<oneshot::Sender<theme::Mode>>,
 
+        #[cfg(target_os = "android")]
+        resumed: bool,
+        #[cfg(target_os = "android")]
+        deferred: Vec<Event<Action<Message>>>,
+
         #[cfg(target_arch = "wasm32")]
         canvas: Option<web_sys::HtmlCanvasElement>,
     }
@@ -181,6 +186,11 @@ where
         receiver: control_receiver,
         error: None,
         system_theme: Some(system_theme_sender),
+
+        #[cfg(target_os = "android")]
+        resumed: false,
+        #[cfg(target_os = "android")]
+        deferred: Vec::new(),
 
         #[cfg(target_arch = "wasm32")]
         canvas: None,
@@ -202,10 +212,18 @@ where
             // On Android, the native window of the application is destroyed
             // and recreated between `Suspended` and `Resumed`
             #[cfg(target_os = "android")]
-            self.process_event(
-                event_loop,
-                Event::EventLoopAwakened(winit::event::Event::Resumed),
-            );
+            {
+                self.resumed = true;
+
+                self.process_event(
+                    event_loop,
+                    Event::EventLoopAwakened(winit::event::Event::Resumed),
+                );
+
+                for event in std::mem::take(&mut self.deferred) {
+                    self.process_event(event_loop, event);
+                }
+            }
         }
 
         #[cfg(target_os = "android")]
@@ -294,6 +312,15 @@ where
             event: Event<Action<Message>>,
         ) {
             if event_loop.exiting() {
+                return;
+            }
+
+            // On Android, the native window of the activity does not exist
+            // until the first `Resumed`; creating windows before that fails,
+            // so events are deferred until the application is resumed
+            #[cfg(target_os = "android")]
+            if !self.resumed {
+                self.deferred.push(event);
                 return;
             }
 
@@ -453,6 +480,13 @@ where
         let mut runner = runner;
         let _ = event_loop.run_app(&mut runner);
 
+        // `android_main` is called again every time the activity is
+        // recreated, but `winit` allows creating an event loop only once
+        // per process; exit so that the next launch starts fresh
+        #[cfg(target_os = "android")]
+        return std::process::exit(0);
+
+        #[cfg(not(target_os = "android"))]
         runner.error.map(Err).unwrap_or(Ok(()))
     }
 
