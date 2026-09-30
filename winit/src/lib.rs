@@ -538,19 +538,12 @@ where
         #[cfg(target_os = "android")]
         {
             // The system recreates the activity within the same process
-            // on configuration changes, calling `android_main` again; the
-            // glue finishes the old activity when `android_main` returns,
-            // which must happen for the recreation to continue, and the
-            // stale activity is brought back in case the system does not
-            // recreate it
-            if crate::winit::platform::android::activity_destroyed() {
-                platform::android::recreate_activity();
-            }
-
-            runner.error.map(Err).unwrap_or(Ok(()))
+            // on configuration changes, calling `android_main` again and
+            // ending this mainloop; the glue finishes the old activity
+            // when `android_main` returns, which must happen for the
+            // recreation to continue
         }
 
-        #[cfg(not(target_os = "android"))]
         runner.error.map(Err).unwrap_or(Ok(()))
     }
 
