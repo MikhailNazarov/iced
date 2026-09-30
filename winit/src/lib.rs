@@ -1622,6 +1622,12 @@ fn run_action<'a, P, C>(
 
                 if window_manager.is_empty() {
                     *compositor = None;
+
+                    // Closing the last window ends the application; end
+                    // the process as well, since a finished activity
+                    // leaves a dead window behind on Android
+                    #[cfg(target_os = "android")]
+                    std::process::exit(0);
                 }
             }
             window::Action::GetOldest(channel) => {
