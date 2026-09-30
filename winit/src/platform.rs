@@ -20,10 +20,44 @@ pub mod android {
 
     use crate::core::Color;
     use jni::{jni_sig, jni_str};
-    use std::sync::Mutex;
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex};
 
     static ANDROID_APP: Mutex<Option<winit::platform::android::activity::AndroidApp>> =
         Mutex::new(None);
+
+    /// Application state that survives activity recreation.
+    ///
+    /// The system recreates the activity of an application on
+    /// configuration changes (like theme switches or rotation), which
+    /// starts a new iced program; this storage lives in the process and
+    /// outlives every activity, so applications can use it to keep their
+    /// state across recreations.
+    ///
+    /// Note that the storage is lost when the process itself dies; it is
+    /// not a replacement for persisting important data to disk.
+    static INSTANCE_STATE: LazyLock<Mutex<HashMap<String, Vec<u8>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    /// Saves a blob of application state for the given `key`.
+    ///
+    /// The value survives activity recreation within the same process;
+    /// see [`INSTANCE_STATE`].
+    pub fn save_instance_state(key: String, value: Vec<u8>) {
+        let _ = INSTANCE_STATE
+            .lock()
+            .expect("Lock instance state")
+            .insert(key, value);
+    }
+
+    /// Loads the blob of application state for the given `key`.
+    pub fn load_instance_state(key: &str) -> Option<Vec<u8>> {
+        INSTANCE_STATE
+            .lock()
+            .expect("Lock instance state")
+            .get(key)
+            .cloned()
+    }
 
     /// The Android application handle provided to `android_main`.
     pub type AndroidApp = winit::platform::android::activity::AndroidApp;

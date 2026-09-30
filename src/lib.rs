@@ -542,6 +542,7 @@ pub mod platform {
     //! target (among other Android targets) and packaged into an APK.
 
     pub use iced_winit::platform::android::{AndroidApp, set_android_app};
+    pub use iced_winit::platform::android::{load_instance_state, save_instance_state};
 }
 
 #[cfg(feature = "advanced")]
