@@ -97,9 +97,13 @@ Logging is available through any `log` implementation; initialize
 
 - IME support is basic: the soft keyboard shows and delivers text,
   but cursor area and input purpose are not forwarded to the system.
-- The application state is lost when the system recreates the
-  activity (theme changes, rotation); applications can keep it with
-  `iced::platform::{save_instance_state, load_instance_state}`, which
-  survives recreation while the process is alive.
+- The system recreates the activity on configuration changes (theme
+  changes, rotation) and the application restarts; applications can
+  keep their state with
+  `iced::platform::{save_persisted_state, load_persisted_state}`
+  (a file in the internal storage of the application; survives
+  process death) or with
+  `iced::platform::{save_instance_state, load_instance_state}`
+  (in-process; survives recreation only).
 - On some Samsung devices (OneUI), closing the application with the
   back gesture may leave a frozen frame until the system cleans it up.

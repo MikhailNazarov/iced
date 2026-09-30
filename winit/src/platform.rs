@@ -59,6 +59,45 @@ pub mod android {
             .cloned()
     }
 
+    /// Returns the file that stores the persisted state blob for the
+    /// given `key`.
+    fn persisted_state_path(key: &str) -> Option<std::path::PathBuf> {
+        let app = android_app()?;
+
+        let mut path = app.internal_data_path()?;
+
+        path.push(format!("iced_state_{key}.bin"));
+
+        Some(path)
+    }
+
+    /// Saves a blob of application state for the given `key`.
+    ///
+    /// The value is written to the internal storage of the application
+    /// and survives both activity recreation and process death.
+    pub fn save_persisted_state(key: &str, value: &[u8]) {
+        let Some(path) = persisted_state_path(key) else {
+            return;
+        };
+
+        let temporary = path.with_extension("tmp");
+
+        match (std::fs::write(&temporary, value), std::fs::rename(&temporary, &path)) {
+            (Ok(()), Ok(())) => {}
+            (Err(error), _) | (_, Err(error)) => {
+                log::warn!("Failed to save the persisted state: {error:?}");
+            }
+        }
+    }
+
+    /// Loads the blob of persisted application state for the given
+    /// `key`, if any.
+    pub fn load_persisted_state(key: &str) -> Option<Vec<u8>> {
+        let path = persisted_state_path(key)?;
+
+        std::fs::read(path).ok()
+    }
+
     /// The Android application handle provided to `android_main`.
     pub type AndroidApp = winit::platform::android::activity::AndroidApp;
 

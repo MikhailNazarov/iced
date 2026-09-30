@@ -543,6 +543,7 @@ pub mod platform {
 
     pub use iced_winit::platform::android::{AndroidApp, set_android_app};
     pub use iced_winit::platform::android::{load_instance_state, save_instance_state};
+    pub use iced_winit::platform::android::{load_persisted_state, save_persisted_state};
 }
 
 #[cfg(feature = "advanced")]
