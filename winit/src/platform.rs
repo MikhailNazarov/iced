@@ -49,6 +49,20 @@ pub mod android {
         android_app()
     }
 
+    /// Returns the current theme of the system, if it is known.
+    pub fn system_theme() -> Option<crate::core::theme::Mode> {
+        use winit::platform::android::activity::ndk::configuration::UiModeNight;
+
+        let app = android_app()?;
+        let config = app.config();
+
+        Some(match config.ui_mode_night() {
+            UiModeNight::Yes => crate::core::theme::Mode::Dark,
+            UiModeNight::No => crate::core::theme::Mode::Light,
+            _ => crate::core::theme::Mode::None,
+        })
+    }
+
     /// The `SYSTEM_UI_FLAG_LIGHT_STATUS_BAR` flag of `View`.
     const LIGHT_STATUS_BAR: i32 = 0x0000_2000;
 

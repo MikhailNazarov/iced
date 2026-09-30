@@ -83,15 +83,28 @@ where
 
     #[cfg(target_os = "android")]
     let event_loop = {
+        use std::panic::AssertUnwindSafe;
         use winit::platform::android::EventLoopBuilderExtAndroid;
 
-        EventLoop::with_user_event()
-            .with_android_app(platform::android::take_android_app().expect(
-                "`set_android_app` must be called in `android_main` before \
-                 running an iced program on Android",
-            ))
-            .build()
-            .expect("Create event loop")
+        let app = platform::android::take_android_app().expect(
+            "`set_android_app` must be called in `android_main` before \
+             running an iced program on Android",
+        );
+
+        // The system recreates the activity within the same process on
+        // configuration changes (like theme switches), calling
+        // `android_main` again; but `winit` only allows creating an event
+        // loop once per process, so exit and let the system start a fresh
+        // process for the recreated activity
+        match std::panic::catch_unwind(AssertUnwindSafe(|| {
+            EventLoop::with_user_event()
+                .with_android_app(app)
+                .build()
+                .expect("Create event loop")
+        })) {
+            Ok(event_loop) => event_loop,
+            Err(_) => std::process::exit(0),
+        }
     };
 
     #[cfg(not(target_os = "android"))]
@@ -201,12 +214,19 @@ where
     impl<Message> winit::application::ApplicationHandler<Action<Message>> for Runner<Message> {
         fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
             if let Some(sender) = self.system_theme.take() {
-                let _ = sender.send(
-                    event_loop
-                        .system_theme()
-                        .map(conversion::theme_mode)
-                        .unwrap_or_default(),
-                );
+                // `winit` cannot read the system theme on Android
+                #[cfg(target_os = "android")]
+                let mode = platform::android::system_theme()
+                    .or_else(|| event_loop.system_theme().map(conversion::theme_mode))
+                    .unwrap_or_default();
+
+                #[cfg(not(target_os = "android"))]
+                let mode = event_loop
+                    .system_theme()
+                    .map(conversion::theme_mode)
+                    .unwrap_or_default();
+
+                let _ = sender.send(mode);
             }
 
             // On Android, the native window of the application is destroyed
