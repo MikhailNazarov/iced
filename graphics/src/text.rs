@@ -134,6 +134,38 @@ pub fn font_system() -> &'static RwLock<FontSystem> {
         #[cfg(feature = "fira-sans")]
         raw.db_mut().set_sans_serif_family("Fira Sans");
 
+        // `fontdb` loads no system fonts on Android; without the fonts
+        // of the device, text is rendered with the embedded fonts only
+        #[cfg(target_os = "android")]
+        {
+            raw.db_mut()
+                .load_fonts_dir(std::path::Path::new("/system/fonts"));
+
+            // Pick a default sans-serif family that is actually available
+            // on the device, since the default families that `cosmic-text`
+            // expects do not exist there
+            #[cfg(not(feature = "fira-sans"))]
+            {
+                let families =
+                    ["Roboto", "Noto Sans", "Droid Sans", "SamsungOne 800"];
+
+                for family in families {
+                    let query = cosmic_text::fontdb::Query {
+                        families: &[cosmic_text::fontdb::Family::Name(family)],
+                        ..Default::default()
+                    };
+
+                    if raw.db_mut().query(&query).is_some() {
+                        log::info!("Using {family} as the default sans-serif font");
+
+                        raw.db_mut().set_sans_serif_family(family);
+
+                        break;
+                    }
+                }
+            }
+        }
+
         #[cfg(target_os = "macos")]
         {
             #[cfg(not(feature = "fira-sans"))]
