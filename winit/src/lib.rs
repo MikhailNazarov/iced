@@ -480,11 +480,13 @@ where
         let mut runner = runner;
         let _ = event_loop.run_app(&mut runner);
 
-        // `android_main` is called again every time the activity is
-        // recreated, but `winit` allows creating an event loop only once
-        // per process; exit so that the next launch starts fresh
         #[cfg(target_os = "android")]
-        return std::process::exit(0);
+        {
+            // `android_main` is called again every time the activity is
+            // recreated, but `winit` only allows creating an event loop
+            // once per process; exit so that the next launch starts fresh
+            std::process::exit(0)
+        }
 
         #[cfg(not(target_os = "android"))]
         runner.error.map(Err).unwrap_or(Ok(()))
@@ -702,6 +704,14 @@ async fn run_instance<P>(
                 window
                     .raw
                     .set_theme(conversion::window_theme(window.state.theme_mode()));
+
+                    // `winit` cannot control the system bars on Android, so
+                    // the appearance is applied manually through JNI
+                    #[cfg(target_os = "android")]
+                    platform::android::set_system_bars(
+                        window.state.theme_mode() != theme::Mode::Dark,
+                        window.state.background_color(),
+                    );
 
                 debug::theme_changed(|| {
                     if is_first {

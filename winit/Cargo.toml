@@ -55,3 +55,4 @@ objc2 = { version = "0.5", features = ["relax-sign-encoding"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
+jni.workspace = true
