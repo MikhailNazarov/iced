@@ -540,11 +540,12 @@ where
             // The system recreates the activity within the same process
             // on configuration changes, calling `android_main` again; the
             // glue finishes the old activity when `android_main` returns,
-            // which must happen for the recreation to continue
-            //
-            // A recreation is requested in case the event loop ended for
-            // any other reason, so that a stale activity comes back fresh
-            platform::android::recreate_activity();
+            // which must happen for the recreation to continue, and the
+            // stale activity is brought back in case the system does not
+            // recreate it
+            if crate::winit::platform::android::activity_destroyed() {
+                platform::android::recreate_activity();
+            }
 
             runner.error.map(Err).unwrap_or(Ok(()))
         }
@@ -1276,6 +1277,9 @@ async fn run_instance<P>(
                         if matches!(window_event, winit::event::WindowEvent::CloseRequested)
                             && window.exit_on_close_request
                         {
+                            #[cfg(target_os = "android")]
+                            log::info!("Close requested; exiting");
+
                             run_action(
                                 Action::Window(runtime::window::Action::Close(id)),
                                 &program,
