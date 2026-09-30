@@ -52,6 +52,119 @@ pub mod android {
             .unwrap_or_default()
     }
 
+    /// The latest known safe area insets of the window, in logical
+    /// pixels; `[left, top, right, bottom]`.
+    static WINDOW_INSETS: Mutex<[f32; 4]> = Mutex::new([0.0; 4]);
+
+    /// Reads the safe area insets of the activity's window in logical
+    /// pixels, using the given `scale_factor`.
+    ///
+    /// The read value is stored as the latest known one.
+    #[allow(unsafe_code)] // JNI is inherently unsafe
+    pub(crate) fn window_insets(scale_factor: f32) -> crate::core::window::Insets {
+        let physical = read_window_insets().unwrap_or([0.0; 4]);
+
+        let scale = if scale_factor > 0.0 {
+            scale_factor
+        } else {
+            1.0
+        };
+
+        let insets = crate::core::window::Insets {
+            left: physical[0] / scale,
+            top: physical[1] / scale,
+            right: physical[2] / scale,
+            bottom: physical[3] / scale,
+        };
+
+        *WINDOW_INSETS.lock().expect("Lock window insets") =
+            [insets.left, insets.top, insets.right, insets.bottom];
+
+        insets
+    }
+
+    /// Returns the latest known safe area insets of the window, in
+    /// logical pixels.
+    pub(crate) fn last_window_insets() -> crate::core::window::Insets {
+        let [left, top, right, bottom] = *WINDOW_INSETS.lock().expect("Lock window insets");
+
+        crate::core::window::Insets {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    /// Reads the safe area insets of the activity's window, in physical
+    /// pixels; `[left, top, right, bottom]`.
+    #[allow(unsafe_code)] // JNI is inherently unsafe
+    fn read_window_insets() -> Option<[f32; 4]> {
+        let app = android_app()?;
+
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+
+        vm.attach_current_thread(|env| -> jni::errors::Result<[f32; 4]> {
+            // `android-activity` owns this reference; do not delete it
+            let activity =
+                unsafe { jni::objects::JObject::from_raw(env, app.activity_as_ptr() as _) };
+
+            let window = env
+                .call_method(
+                    &activity,
+                    jni_str!("getWindow"),
+                    jni_sig!("()Landroid/view/Window;"),
+                    &[],
+                )?
+                .l()?;
+
+            let decor_view = env
+                .call_method(
+                    &window,
+                    jni_str!("getDecorView"),
+                    jni_sig!("()Landroid/view/View;"),
+                    &[],
+                )?
+                .l()?;
+
+            let window_insets = env
+                .call_method(
+                    &decor_view,
+                    jni_str!("getRootWindowInsets"),
+                    jni_sig!("()Landroid/view/WindowInsets;"),
+                    &[],
+                )?
+                .l()?;
+
+            let system_insets = env
+                .call_method(
+                    &window_insets,
+                    jni_str!("getSystemWindowInsets"),
+                    jni_sig!("()Landroid/graphics/Insets;"),
+                    &[],
+                )?
+                .l()?;
+
+            let left = env
+                .get_field(&system_insets, jni_str!("left"), jni_sig!("I"))?
+                .i()?;
+            let top = env
+                .get_field(&system_insets, jni_str!("top"), jni_sig!("I"))?
+                .i()?;
+            let right = env
+                .get_field(&system_insets, jni_str!("right"), jni_sig!("I"))?
+                .i()?;
+            let bottom = env
+                .get_field(&system_insets, jni_str!("bottom"), jni_sig!("I"))?
+                .i()?;
+
+            std::mem::forget(activity);
+
+            Ok([left as f32, top as f32, right as f32, bottom as f32])
+        })
+        .ok()
+    }
+
     /// Asks the system to recreate the activity.
     ///
     /// This is used when the event loop of an invocation of `android_main`

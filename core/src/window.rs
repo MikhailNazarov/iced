@@ -1,5 +1,7 @@
 //! Build window-based GUI applications.
 pub mod icon;
+/// The safe area insets of a window.
+pub mod insets;
 pub mod screenshot;
 pub mod settings;
 
@@ -13,6 +15,7 @@ mod redraw_request;
 mod user_attention;
 
 pub use direction::Direction;
+pub use insets::Insets;
 pub use event::Event;
 pub use icon::Icon;
 pub use id::Id;

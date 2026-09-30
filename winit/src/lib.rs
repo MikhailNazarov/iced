@@ -787,6 +787,19 @@ async fn run_instance<P>(
                         window.state.background_color(),
                     );
 
+                    // Report the safe area insets of the window
+                    #[cfg(target_os = "android")]
+                    {
+                        let insets = platform::android::window_insets(
+                            window.raw.scale_factor() as f32,
+                        );
+
+                        events.push((
+                            id,
+                            core::Event::Window(core::window::Event::InsetsChanged(insets)),
+                        ));
+                    }
+
                 debug::theme_changed(|| {
                     if is_first {
                         theme::Base::seed(window.state.theme())
@@ -1290,6 +1303,25 @@ async fn run_instance<P>(
                             ) {
                                 events.push((id, event));
                             }
+
+                            // The safe area insets change together with
+                            // the size of the window
+                            #[cfg(target_os = "android")]
+                            {
+                                let previous = platform::android::last_window_insets();
+                                let insets = platform::android::window_insets(
+                                    window.raw.scale_factor() as f32,
+                                );
+
+                                if insets != previous {
+                                    events.push((
+                                        id,
+                                        core::Event::Window(
+                                            core::window::Event::InsetsChanged(insets),
+                                        ),
+                                    ));
+                                }
+                            }
                         }
                     }
                     event::Event::AboutToWait => {
@@ -1703,6 +1735,18 @@ fn run_action<'a, P, C>(
                     let scale_factor = window.raw.scale_factor();
 
                     let _ = channel.send(scale_factor as f32);
+                }
+            }
+            window::Action::GetInsets(id, channel) => {
+                if let Some(window) = window_manager.get_mut(id) {
+                    #[cfg(target_os = "android")]
+                    let insets =
+                        platform::android::window_insets(window.raw.scale_factor() as f32);
+
+                    #[cfg(not(target_os = "android"))]
+                    let insets = crate::core::window::Insets::default();
+
+                    let _ = channel.send(insets);
                 }
             }
             window::Action::Move(id, position) => {

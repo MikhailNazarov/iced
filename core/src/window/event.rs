@@ -1,4 +1,5 @@
 use crate::time::Instant;
+use crate::window::Insets;
 use crate::{Point, Size};
 
 use std::path::PathBuf;
@@ -32,6 +33,18 @@ pub enum Event {
 
     /// A window changed its scale factor.
     Rescaled(f32),
+
+    /// The safe area [`Insets`] of a window changed.
+    ///
+    /// The insets describe the areas of the window obstructed by system
+    /// UI; like the status bar or a display cutout. They are in logical
+    /// pixels.
+    ///
+    /// ## Platform-specific
+    /// - **Android:** Supported.
+    /// - **Windows, macOS, Linux, Web, iOS:** Unsupported (the insets are
+    ///   always zero).
+    InsetsChanged(Insets),
 
     /// A window redraw was requested.
     ///

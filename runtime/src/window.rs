@@ -1,7 +1,7 @@
 //! Build window-based GUI applications.
 use crate::core::time::Instant;
 use crate::core::window::{
-    Direction, Event, Icon, Id, Level, Mode, Screenshot, Settings, UserAttention,
+    Direction, Event, Icon, Id, Insets, Level, Mode, Screenshot, Settings, UserAttention,
 };
 use crate::core::{Point, Size, Window};
 use crate::futures::Subscription;
@@ -63,6 +63,13 @@ pub enum Action {
 
     /// Get the current scale factor (DPI) of the window.
     GetScaleFactor(Id, oneshot::Sender<f32>),
+
+    /// Get the safe area [`Insets`] of the window in logical coordinates.
+    ///
+    /// ## Platform-specific
+    /// - **Android:** Supported.
+    /// - **Windows, macOS, Linux, Web, iOS:** Unsupported (always zero).
+    GetInsets(Id, oneshot::Sender<Insets>),
 
     /// Move the window to the given logical coordinates.
     ///
@@ -244,6 +251,18 @@ pub fn resize_events() -> Subscription<(Id, Size)> {
     })
 }
 
+/// Subscribes to all [`Event::InsetsChanged`] occurrences in the running
+/// application.
+pub fn insets_events() -> Subscription<(Id, Insets)> {
+    event::listen_with(|event, _status, id| {
+        if let crate::core::Event::Window(Event::InsetsChanged(insets)) = event {
+            Some((id, insets))
+        } else {
+            None
+        }
+    })
+}
+
 /// Subscribes to all [`Event::CloseRequested`] occurrences in the running application.
 pub fn close_requests() -> Subscription<Id> {
     event::listen_with(|event, _status, id| {
@@ -353,6 +372,19 @@ pub fn position(id: Id) -> Task<Option<Point>> {
 /// Gets the scale factor of the window with the given [`Id`].
 pub fn scale_factor(id: Id) -> Task<f32> {
     task::oneshot(move |channel| crate::Action::Window(Action::GetScaleFactor(id, channel)))
+}
+
+/// Gets the safe area [`Insets`] of the window with the given [`Id`].
+///
+/// The insets are in logical coordinates and describe the areas of the
+/// window obstructed by system UI; like the status bar or a display
+/// cutout.
+///
+/// ## Platform-specific
+/// - **Android:** Supported.
+/// - **Windows, macOS, Linux, Web, iOS:** Unsupported (always zero).
+pub fn insets(id: Id) -> Task<Insets> {
+    task::oneshot(move |channel| crate::Action::Window(Action::GetInsets(id, channel)))
 }
 
 /// Moves the window to the given logical coordinates.
