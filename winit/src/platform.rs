@@ -96,6 +96,155 @@ pub mod android {
         }
     }
 
+    /// Reads text from the clipboard, if any.
+    #[allow(unsafe_code)] // JNI is inherently unsafe
+    pub(crate) fn read_clipboard_text() -> Result<String, ()> {
+        let app = android_app().ok_or(())?;
+
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+
+        vm.attach_current_thread(|env| -> jni::errors::Result<Option<String>> {
+            // `android-activity` owns this reference; do not delete it
+            let activity =
+                unsafe { jni::objects::JObject::from_raw(env, app.activity_as_ptr() as _) };
+
+            let name = env.new_string("clipboard")?;
+
+            let clipboard = env
+                .call_method(
+                    &activity,
+                    jni_str!("getSystemService"),
+                    jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                    &[jni::JValue::Object(&name)],
+                )?
+                .l()?;
+
+            let clip = env
+                .call_method(
+                    &clipboard,
+                    jni_str!("getPrimaryClip"),
+                    jni_sig!("()Landroid/content/ClipData;"),
+                    &[],
+                )?
+                .l()?;
+
+            if clip.is_null() {
+                return Ok(None);
+            }
+
+            let count = env
+                .call_method(&clip, jni_str!("getItemCount"), jni_sig!("()I"), &[])?
+                .i()?;
+
+            if count == 0 {
+                return Ok(None);
+            }
+
+            let item = env
+                .call_method(
+                    &clip,
+                    jni_str!("getItemAt"),
+                    jni_sig!("(I)Landroid/content/ClipData$Item;"),
+                    &[jni::JValue::Int(0)],
+                )?
+                .l()?;
+
+            let text = env
+                .call_method(
+                    &item,
+                    jni_str!("getText"),
+                    jni_sig!("()Ljava/lang/CharSequence;"),
+                    &[],
+                )?
+                .l()?;
+
+            if text.is_null() {
+                return Ok(None);
+            }
+
+            let string = env
+                .call_method(
+                    &text,
+                    jni_str!("toString"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )?
+                .l()?;
+
+            let raw = string.as_raw();
+
+            // Safety: `string` is a `java.lang.String` local reference
+            let string = unsafe { env.as_cast_raw::<jni::objects::JString<'_>>(&raw)? };
+
+            let text = string.try_to_string(env)?;
+
+            std::mem::forget(activity);
+
+            Ok(Some(text))
+        })
+        .map_err(|error| {
+            log::warn!("Failed to read the clipboard: {error:?}");
+        })
+        .and_then(|text| text.ok_or(()))
+    }
+
+    /// Writes the given text to the clipboard.
+    #[allow(unsafe_code)] // JNI is inherently unsafe
+    pub(crate) fn write_clipboard_text(text: String) -> Result<(), ()> {
+        let app = android_app().ok_or(())?;
+
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+
+        vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            // `android-activity` owns this reference; do not delete it
+            let activity =
+                unsafe { jni::objects::JObject::from_raw(env, app.activity_as_ptr() as _) };
+
+            let name = env.new_string("clipboard")?;
+
+            let clipboard = env
+                .call_method(
+                    &activity,
+                    jni_str!("getSystemService"),
+                    jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
+                    &[jni::JValue::Object(&name)],
+                )?
+                .l()?;
+
+            let label = env.new_string("iced")?;
+            let content = env.new_string(&text)?;
+
+            let clip_data = env
+                .call_static_method(
+                    jni_str!("android/content/ClipData"),
+                    jni_str!("newPlainText"),
+                    jni_sig!(
+                        "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)\
+                         Landroid/content/ClipData;"
+                    ),
+                    &[
+                        jni::JValue::Object(&label),
+                        jni::JValue::Object(&content),
+                    ],
+                )?
+                .l()?;
+
+            let _ = env.call_method(
+                &clipboard,
+                jni_str!("setPrimaryClip"),
+                jni_sig!("(Landroid/content/ClipData;)V"),
+                &[jni::JValue::Object(&clip_data)],
+            )?;
+
+            std::mem::forget(activity);
+
+            Ok(())
+        })
+        .map_err(|error| {
+            log::warn!("Failed to write the clipboard: {error:?}");
+        })
+    }
+
     /// Reads the safe area insets of the activity's window, in physical
     /// pixels; `[left, top, right, bottom]`.
     #[allow(unsafe_code)] // JNI is inherently unsafe

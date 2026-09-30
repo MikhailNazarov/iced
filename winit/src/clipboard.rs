@@ -152,7 +152,7 @@ mod platform {
 }
 
 // TODO: Wasm support
-#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+#[cfg(target_arch = "wasm32")]
 mod platform {
     use super::*;
 
@@ -161,19 +161,84 @@ mod platform {
     pub struct Clipboard;
 
     impl Clipboard {
-        /// Creates a new [`Clipboard`] for the given window.
+        /// Creates a new [`Clipboard`].
         pub fn new() -> Self {
             Self
         }
 
-        /// Reads the current content of the [`Clipboard`] as text.
+        /// Reads the current content of the clipboard.
         pub fn read(&self, _kind: Kind, callback: impl FnOnce(Result<Content, Error>)) {
             callback(Err(Error::ClipboardUnavailable));
         }
 
-        /// Writes the given text contents to the [`Clipboard`].
+        /// Writes the given content to the clipboard.
         pub fn write(&mut self, _content: Content, callback: impl FnOnce(Result<(), Error>)) {
             callback(Err(Error::ClipboardUnavailable));
+        }
+    }
+}
+
+/// The clipboard of the Android device, accessed through JNI.
+#[cfg(target_os = "android")]
+mod platform {
+    use super::*;
+
+    /// A buffer for short-term storage and transfer within and between
+    /// applications.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Clipboard;
+
+    impl Clipboard {
+        /// Creates a new [`Clipboard`].
+        pub fn new() -> Self {
+            Self
+        }
+
+        /// Reads the current content of the clipboard.
+        pub fn read(
+            &self,
+            kind: Kind,
+            callback: impl FnOnce(Result<Content, Error>) + Send + 'static,
+        ) {
+            if kind != Kind::Text {
+                log::warn!("unsupported clipboard kind: {kind:?}");
+
+                callback(Err(Error::ContentNotAvailable));
+                return;
+            }
+
+            let _reader = std::thread::spawn(move || {
+                let result = crate::platform::android::read_clipboard_text()
+                    .map(Content::Text)
+                    .map_err(|_| Error::ContentNotAvailable);
+
+                callback(result);
+            });
+        }
+
+        /// Writes the given content to the clipboard.
+        pub fn write(
+            &mut self,
+            content: Content,
+            callback: impl FnOnce(Result<(), Error>) + Send + 'static,
+        ) {
+            let text = match content {
+                Content::Text(text) => Some(text),
+                content => {
+                    log::warn!("unsupported clipboard content: {content:?}");
+
+                    None
+                }
+            };
+
+            let _writer = std::thread::spawn(move || {
+                let result = text
+                    .ok_or(())
+                    .and_then(crate::platform::android::write_clipboard_text)
+                    .map_err(|_| Error::ClipboardUnavailable);
+
+                callback(result);
+            });
         }
     }
 }
