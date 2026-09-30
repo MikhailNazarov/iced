@@ -1,0 +1,28 @@
+[package]
+name = "counter-android"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+iced = { path = "../..", features = [] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+log = "0.4"
+
+[lib]
+name = "counter_android"
+crate-type = ["cdylib"]
+
+[package.metadata.android]
+package = "dev.mikhail.iced_counter"
+apk_name = "iced-counter"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34
+
+[package.metadata.android.application]
+label = "Iced Counter"
