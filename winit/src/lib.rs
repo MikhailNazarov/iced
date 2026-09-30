@@ -116,6 +116,39 @@ where
 
     let (proxy, worker) = Proxy::new(event_loop.create_proxy());
 
+    #[cfg(target_os = "android")]
+    {
+        // The activity of an iced program never receives configuration
+        // change callbacks on some devices, so the system theme is polled
+        // and applied manually instead
+        let proxy = proxy.clone();
+        let mut last_theme = platform::android::system_theme();
+
+        let _watchdog = std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(1));
+
+            let current_theme = platform::android::system_theme();
+
+            if current_theme != last_theme {
+                last_theme = current_theme;
+
+                log::info!("System theme changed to {current_theme:?}");
+
+                if platform::android::native_window_exists() {
+                    if let Some(mode) = current_theme {
+                        let _ = proxy
+                            .send_action(Action::System(system::Action::NotifyTheme(mode)));
+                    }
+                } else {
+                    // The application is suspended and its event loop
+                    // ignores user events; recreate the activity so that
+                    // it comes back themed correctly
+                    platform::android::recreate_activity();
+                }
+            }
+        });
+    }
+
     #[cfg(feature = "debug")]
     {
         let proxy = proxy.clone();
@@ -225,6 +258,8 @@ where
                     .system_theme()
                     .map(conversion::theme_mode)
                     .unwrap_or_default();
+
+                log::info!("Reporting system theme {mode:?} to the runtime");
 
                 let _ = sender.send(mode);
             }
@@ -502,10 +537,16 @@ where
 
         #[cfg(target_os = "android")]
         {
-            // `android_main` is called again every time the activity is
-            // recreated, but `winit` only allows creating an event loop
-            // once per process; exit so that the next launch starts fresh
-            std::process::exit(0)
+            // The system recreates the activity within the same process
+            // on configuration changes, calling `android_main` again; the
+            // glue finishes the old activity when `android_main` returns,
+            // which must happen for the recreation to continue
+            //
+            // A recreation is requested in case the event loop ended for
+            // any other reason, so that a stale activity comes back fresh
+            platform::android::recreate_activity();
+
+            runner.error.map(Err).unwrap_or(Ok(()))
         }
 
         #[cfg(not(target_os = "android"))]
@@ -698,15 +739,21 @@ async fn run_instance<P>(
                     }
                 }
 
-                let window_theme = window
-                    .theme()
-                    .map(conversion::theme_mode)
-                    .unwrap_or_default();
+                // `winit` cannot provide the theme of its window on Android,
+                // so the system theme read at startup is kept instead
+                #[cfg(not(target_os = "android"))]
+                {
+                    let window_theme = window
+                        .theme()
+                        .map(conversion::theme_mode)
+                        .unwrap_or_default();
 
-                if system_theme != window_theme {
-                    system_theme = window_theme;
+                    if system_theme != window_theme {
+                        system_theme = window_theme;
 
-                    runtime.broadcast(subscription::Event::SystemThemeChanged(window_theme));
+                        runtime
+                            .broadcast(subscription::Event::SystemThemeChanged(window_theme));
+                    }
                 }
 
                 let is_first = window_manager.is_empty();
@@ -719,6 +766,13 @@ async fn run_instance<P>(
                     renderer_settings,
                     exit_on_close_request,
                     system_theme,
+                );
+
+                #[cfg(target_os = "android")]
+                log::info!(
+                    "Window created: system {system_theme:?}, mode {:?}, background {:?}",
+                    window.state.theme_mode(),
+                    window.state.background_color(),
                 );
 
                 window
@@ -1162,6 +1216,45 @@ async fn run_instance<P>(
 
                                     runtime
                                         .broadcast(subscription::Event::SystemThemeChanged(mode));
+                                }
+                            }
+                            // The `winit` fork notifies configuration changes,
+                            // like theme switches, as scale factor changes
+                            // on Android
+                            #[cfg(target_os = "android")]
+                            winit::event::WindowEvent::ScaleFactorChanged { .. } => {
+                                if let Some(mode) = platform::android::system_theme()
+                                    && mode != system_theme
+                                {
+                                    log::info!("System theme changed: {mode:?}");
+
+                                    system_theme = mode;
+
+                                    runtime.broadcast(subscription::Event::SystemThemeChanged(
+                                        mode,
+                                    ));
+
+                                    if let Some(window_theme) = conversion::window_theme(mode) {
+                                        for (_id, window) in window_manager.iter_mut() {
+                                            window.state.update(
+                                                &program,
+                                                &window.raw,
+                                                &winit::event::WindowEvent::ThemeChanged(
+                                                    window_theme,
+                                                ),
+                                            );
+                                        }
+                                    }
+
+                                    let base_theme = <P::Theme as theme::Base>::default(mode);
+                                    let background = theme::Base::base(&base_theme).background_color;
+
+                                    platform::android::set_system_bars(
+                                        mode != theme::Mode::Dark,
+                                        background,
+                                    );
+
+                                    continue;
                                 }
                             }
                             _ => {}
@@ -1787,6 +1880,13 @@ fn run_action<'a, P, C>(
                         program,
                         &window.raw,
                         &winit::event::WindowEvent::ThemeChanged(theme),
+                    );
+
+                    // The system bars must follow the theme on Android
+                    #[cfg(target_os = "android")]
+                    platform::android::set_system_bars(
+                        window.state.theme_mode() != theme::Mode::Dark,
+                        window.state.background_color(),
                     );
                 }
             }

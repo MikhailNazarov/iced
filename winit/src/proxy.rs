@@ -92,7 +92,15 @@ impl<T: 'static> Proxy<T> {
     /// Note: This skips the backpressure mechanism with an unbounded
     /// channel. Use sparingly!
     pub fn send_action(&self, action: Action<T>) {
-        let _ = self.raw.send_event(action);
+        let result = self.raw.send_event(action);
+
+        #[cfg(target_os = "android")]
+        if let Err(error) = &result {
+            log::warn!("Proxy send_event failed: {error}");
+        }
+
+        #[cfg(not(target_os = "android"))]
+        let _ = result;
     }
 
     /// Frees an amount of slots for additional messages to be queued in

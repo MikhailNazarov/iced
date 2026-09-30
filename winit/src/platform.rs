@@ -44,21 +44,98 @@ pub mod android {
             .clone()
     }
 
+    /// Returns `true` if the native window of the activity currently
+    /// exists; i.e. the application is not suspended.
+    pub(crate) fn native_window_exists() -> bool {
+        android_app()
+            .map(|app| app.native_window().is_some())
+            .unwrap_or_default()
+    }
+
+    /// Asks the system to recreate the activity.
+    ///
+    /// This is used when the event loop of an invocation of `android_main`
+    /// is done, so that a stale activity is brought back with a fresh one.
+    #[allow(unsafe_code)] // JNI is inherently unsafe
+    pub(crate) fn recreate_activity() {
+        let Some(app) = android_app() else {
+            return;
+        };
+
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+
+        let _ = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            // `android-activity` owns this reference; do not delete it
+            let activity =
+                unsafe { jni::objects::JObject::from_raw(env, app.activity_as_ptr() as _) };
+
+            let _ = env.call_method(&activity, jni_str!("recreate"), jni_sig!("()V"), &[]);
+
+            std::mem::forget(activity);
+
+            Ok(())
+        });
+    }
+
     /// Passes the [`AndroidApp`] to the event loop.
     pub(crate) fn take_android_app() -> Option<AndroidApp> {
         android_app()
     }
 
     /// Returns the current theme of the system, if it is known.
+    ///
+    /// The `ui_night_mode` setting is queried directly, since neither the
+    /// configuration of the activity nor the `UiModeManager` service ever
+    /// reflect theme changes on some devices.
+    #[allow(unsafe_code)] // JNI is inherently unsafe
     pub fn system_theme() -> Option<crate::core::theme::Mode> {
-        use winit::platform::android::activity::ndk::configuration::UiModeNight;
-
         let app = android_app()?;
-        let config = app.config();
 
-        Some(match config.ui_mode_night() {
-            UiModeNight::Yes => crate::core::theme::Mode::Dark,
-            UiModeNight::No => crate::core::theme::Mode::Light,
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr() as *mut _) };
+
+        let night_mode = vm
+            .attach_current_thread(|env| -> jni::errors::Result<i32> {
+                // `android-activity` owns this reference; do not delete it
+                let activity =
+                    unsafe { jni::objects::JObject::from_raw(env, app.activity_as_ptr() as _) };
+
+                let resolver = env
+                    .call_method(
+                        &activity,
+                        jni_str!("getContentResolver"),
+                        jni_sig!("()Landroid/content/ContentResolver;"),
+                        &[],
+                    )?
+                    .l()?;
+
+                let secure = env.find_class(jni_str!("android/provider/Settings$Secure"))?;
+
+                let name = env.new_string("ui_night_mode")?;
+
+                // `Settings.Secure.getInt(resolver, "ui_night_mode", 0)`
+                let night_mode = env
+                    .call_static_method(
+                        &secure,
+                        jni_str!("getInt"),
+                        jni_sig!("(Landroid/content/ContentResolver;Ljava/lang/String;I)I"),
+                        &[
+                            jni::JValue::Object(&resolver),
+                            jni::JValue::Object(&name),
+                            jni::JValue::Int(0),
+                        ],
+                    )?
+                    .i()?;
+
+                std::mem::forget(activity);
+
+                Ok(night_mode)
+            })
+            .ok()?;
+
+        // `UiModeManager.MODE_NIGHT_NO` and `UiModeManager.MODE_NIGHT_YES`
+        Some(match night_mode {
+            2 => crate::core::theme::Mode::Dark,
+            1 => crate::core::theme::Mode::Light,
             _ => crate::core::theme::Mode::None,
         })
     }
