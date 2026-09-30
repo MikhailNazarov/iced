@@ -783,7 +783,7 @@ async fn run_instance<P>(
                     // the appearance is applied manually through JNI
                     #[cfg(target_os = "android")]
                     platform::android::set_system_bars(
-                        window.state.theme_mode() != theme::Mode::Dark,
+                        system_theme != theme::Mode::Dark,
                         window.state.background_color(),
                     );
 
@@ -1884,10 +1884,14 @@ fn run_action<'a, P, C>(
 
                     // The system bars must follow the theme on Android
                     #[cfg(target_os = "android")]
-                    platform::android::set_system_bars(
-                        window.state.theme_mode() != theme::Mode::Dark,
-                        window.state.background_color(),
-                    );
+                    {
+                        let base_theme = <P::Theme as theme::Base>::default(mode);
+
+                        platform::android::set_system_bars(
+                            mode != theme::Mode::Dark,
+                            theme::Base::base(&base_theme).background_color,
+                        );
+                    }
                 }
             }
         },
