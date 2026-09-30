@@ -522,6 +522,28 @@ pub mod daemon;
 pub mod time;
 pub mod window;
 
+#[cfg(target_os = "android")]
+pub mod platform {
+    //! Platform-specific integration for Android.
+    //!
+    //! On Android, an iced application is built as a `cdylib` library and
+    //! started by the system through the `android_main` entry point:
+    //!
+    //! ```ignore
+    //! #[no_mangle]
+    //! fn android_main(android_app: iced::platform::AndroidApp) {
+    //!     iced::platform::set_android_app(android_app);
+    //!
+    //!     counter::main();
+    //! }
+    //! ```
+    //!
+    //! The crate must be compiled as a `cdylib` for the `aarch64-linux-android`
+    //! target (among other Android targets) and packaged into an APK.
+
+    pub use iced_winit::platform::android::{AndroidApp, set_android_app};
+}
+
 #[cfg(feature = "advanced")]
 pub mod advanced;
 

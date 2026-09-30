@@ -29,6 +29,9 @@ pub use winit;
 pub mod clipboard;
 pub mod conversion;
 
+#[cfg(target_os = "android")]
+pub mod platform;
+
 mod error;
 mod proxy;
 mod window;
@@ -78,9 +81,21 @@ where
     let settings = program.settings();
     let window_settings = program.window();
 
-    let event_loop = EventLoop::with_user_event()
-        .build()
-        .expect("Create event loop");
+    #[cfg(target_os = "android")]
+    let event_loop = {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+
+        EventLoop::with_user_event()
+            .with_android_app(platform::android::take_android_app().expect(
+                "`set_android_app` must be called in `android_main` before \
+                 running an iced program on Android",
+            ))
+            .build()
+            .expect("Create event loop")
+    };
+
+    #[cfg(not(target_os = "android"))]
+    let event_loop = EventLoop::with_user_event().build().expect("Create event loop");
 
     let backend_settings = backend::Settings::from(&settings);
     let renderer_settings = renderer::Settings::from(&settings);
@@ -183,6 +198,22 @@ where
                         .unwrap_or_default(),
                 );
             }
+
+            // On Android, the native window of the application is destroyed
+            // and recreated between `Suspended` and `Resumed`
+            #[cfg(target_os = "android")]
+            self.process_event(
+                event_loop,
+                Event::EventLoopAwakened(winit::event::Event::Resumed),
+            );
+        }
+
+        #[cfg(target_os = "android")]
+        fn suspended(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+            self.process_event(
+                event_loop,
+                Event::EventLoopAwakened(winit::event::Event::Suspended),
+            );
         }
 
         fn new_events(
@@ -703,6 +734,34 @@ async fn run_instance<P>(
                         } else {
                             let _ =
                                 control_sender.start_send(Control::ChangeFlow(ControlFlow::Wait));
+                        }
+                    }
+                    #[cfg(target_os = "android")]
+                    event::Event::Suspended => {
+                        log::info!("Application suspended");
+
+                        // No redraws are delivered while the application is
+                        // suspended; the surfaces of all windows are
+                        // recreated on `Resumed`, before any redraw happens
+                        // again
+                    }
+                    #[cfg(target_os = "android")]
+                    event::Event::Resumed => {
+                        // The native window was recreated by the system, and
+                        // with it every render surface must be recreated
+                        if let Some(compositor) = compositor.as_mut() {
+                            for (_id, window) in window_manager.iter_mut() {
+                                let physical_size = window.state.physical_size();
+
+                                window.surface = compositor.create_surface(
+                                    window.raw.clone(),
+                                    physical_size.width,
+                                    physical_size.height,
+                                );
+
+                                window.surface_version = window.state.surface_version();
+                                window.surface_error_at = None;
+                            }
                         }
                     }
                     event::Event::PlatformSpecific(event::PlatformSpecific::MacOS(
